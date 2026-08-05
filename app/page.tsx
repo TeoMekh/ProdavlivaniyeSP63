@@ -92,6 +92,17 @@ function trimByHole(segments: Segment[], hole: Hole, cx: number, cy: number, h0:
   return {segments:kept,info,removed};
 }
 
+function trimByHoles(segments: Segment[], holes: Hole[], cx: number, cy: number, h0: number, wall: boolean) {
+  let current=segments,removed=0;
+  const results=holes.map(hole=>{
+    const result=trimByHole(current,hole,cx,cy,h0,wall);
+    current=result.segments;
+    removed+=result.removed;
+    return result;
+  });
+  return {segments:current,holes:results,removed};
+}
+
 function sectionProps(seg: Segment[]) {
   let u=0,sx=0,sy=0;
   seg.forEach(s=>{const l=len(s);u+=l;sx+=(s.x1+s.x2)/2*l;sy+=(s.y1+s.y2)/2*l});
@@ -116,13 +127,15 @@ export default function Home(){
   const [cx,setCx]=useState(400),[cy,setCy]=useState(400),[edgeX,setEdgeX]=useState(150),[edgeY,setEdgeY]=useState(150);
   const [concrete,setConcrete]=useState("B30"),[gamma,setGamma]=useState(1),[force,setForce]=useState(650),[mx,setMx]=useState(25),[my,setMy]=useState(15);
   const [hole,setHole]=useState(false),[hx,setHx]=useState(850),[hy,setHy]=useState(0),[hw,setHw]=useState(400),[hh,setHh]=useState(500);
+  const [hole2,setHole2]=useState(false),[hx2,setHx2]=useState(-850),[hy2,setHy2]=useState(0),[hw2,setHw2]=useState(400),[hh2,setHh2]=useState(500);
   const [reinforced,setReinforced]=useState(false),[steel,setSteel]=useState("A500C"),[swDia,setSwDia]=useState(10),[swStep,setSwStep]=useState(100),[swOffset,setSwOffset]=useState(60);
   const [reportBusy,setReportBusy]=useState(false);
   const h0=Math.max(1,h-cover-bar/2), rbt=concreteRbt[concrete]*gamma;
-  const holeObj={enabled:hole,x:hx,y:hy,w:hw,h:hh};
+  const holeObj={enabled:hole,x:hx,y:hy,w:hw,h:hh},holeObj2={enabled:hole2,x:hx2,y:hy2,w:hw2,h:hh2};
+  const holes=[holeObj,holeObj2];
   const wall=kind.startsWith("wall");
   const raw=useMemo(()=>baseContour(kind,cx,cy,h0,edgeX,edgeY),[kind,cx,cy,h0,edgeX,edgeY]);
-  const cut=useMemo(()=>trimByHole(raw,holeObj,cx,cy,h0,wall),[raw,hole,hx,hy,hw,hh,cx,cy,h0,wall]);
+  const cut=useMemo(()=>trimByHoles(raw,holes,cx,cy,h0,wall),[raw,hole,hx,hy,hw,hh,hole2,hx2,hy2,hw2,hh2,cx,cy,h0,wall]);
   const p=sectionProps(cut.segments), rawU=raw.reduce((a,s)=>a+len(s),0);
   const vf=force*1000/(p.u*h0);
   const vmx=wall?0:Math.abs(mx)*1e6/(p.wx*h0), vmy=Math.abs(my)*1e6/(p.wy*h0), rawMomentStress=vmx+vmy;
@@ -142,7 +155,7 @@ export default function Home(){
   const acceptedMomentStress=acceptedMomentRatio*capacity, acceptedDemand=vf+acceptedMomentStress, momentLimited=rawMomentRatio>momentRatioLimit;
   const outerOffset=zoneWidth+h0/2;
   const outerRaw=useMemo(()=>baseContour(kind,cx,cy,h0,edgeX,edgeY,outerOffset),[kind,cx,cy,h0,edgeX,edgeY,outerOffset]);
-  const outerCut=useMemo(()=>trimByHole(outerRaw,holeObj,cx,cy,h0,wall),[outerRaw,hole,hx,hy,hw,hh,cx,cy,h0,wall]);
+  const outerCut=useMemo(()=>trimByHoles(outerRaw,holes,cx,cy,h0,wall),[outerRaw,hole,hx,hy,hw,hh,hole2,hx2,hy2,hw2,hh2,cx,cy,h0,wall]);
   const outerP=sectionProps(outerCut.segments);
   const outerForceStress=force*1000/(outerP.u*h0);
   const outerMomentStress=(wall?0:Math.abs(mx)*1e6/(outerP.wx*h0))+Math.abs(my)*1e6/(outerP.wy*h0);
@@ -156,14 +169,18 @@ export default function Home(){
   const geomSize=wall?Math.max(cy+2*(reinforced?outerOffset:h0/2),500):Math.max(cx+2*(reinforced?outerOffset:h0/2),cy+2*(reinforced?outerOffset:h0/2),500);
   const scale=Math.min(0.42,205/geomSize),ox=wall?315:275,oy=210,tx=(x:number)=>ox+x*scale,ty=(y:number)=>oy-y*scale;
   const supportLeft=wall?-620/scale:-cx/2;
-  const holeVisible=hole&&cut.info.clear<=7.5*h0;
-  const holeStatus=!hole?"нет":cut.info.active?`учтено: d = ${cut.info.clear.toFixed(0)} мм ≤ 6h₀ = ${(6*h0).toFixed(0)} мм; исключено ${((cut.removed/rawU)*100).toFixed(0)}% контура`:`не влияет: d = ${cut.info.clear.toFixed(0)} мм > 6h₀ = ${(6*h0).toFixed(0)} мм`;
+  const holeVisible=[hole&&cut.holes[0].info.clear<=7.5*h0,hole2&&cut.holes[1].info.clear<=7.5*h0];
+  const holeStatuses=cut.holes.map((result,i)=>{
+    const enabled=i===0?hole:hole2;
+    return !enabled?`Отверстие ${i+1}: не задано`:result.info.active?`Отверстие ${i+1}: учтено, d = ${result.info.clear.toFixed(0)} мм ≤ 6h₀ = ${(6*h0).toFixed(0)} мм; дополнительно исключено ${((result.removed/rawU)*100).toFixed(0)}% контура`:`Отверстие ${i+1}: не влияет, d = ${result.info.clear.toFixed(0)} мм > 6h₀ = ${(6*h0).toFixed(0)} мм`;
+  });
+  const holeStatus=holeStatuses.filter((_,i)=>i===0?hole:hole2).join("; ")||"нет";
   const makeReport=async()=>{
     setReportBusy(true);
     try{
       await downloadPunchingReport({
         caseLabel:cases[kind].label,h,cover,bar,h0,cx,cy,edgeX:hasRight?edgeX:undefined,edgeY:hasBottom?edgeY:undefined,wall,
-        concrete,rbt,gamma,force,mx:wall?0:mx,my,hole,holeStatus,u:p.u,wx:p.wx,wy:p.wy,xc:p.xc,yc:p.yc,
+        concrete,rbt,gamma,force,mx:wall?0:mx,my,hole:hole||hole2,holeStatus,u:p.u,wx:p.wx,wy:p.wy,xc:p.xc,yc:p.yc,
         reinforced,steel,rsw:steelRsw[steel],swDia,swStep,swOffset,asw,qsw,rowCount,zoneWidth,fb,fswRaw,fswAccepted,fswThreshold,
         forceRatio,rawMomentRatio,momentLimit:momentRatioLimit,acceptedMomentRatio,eta,outerEta,outerU:outerP.u,outerWx:outerP.wx,outerWy:outerP.wy,
         outerForceRatio,outerMomentRatio,outerOffset,governingEta,
@@ -179,7 +196,7 @@ export default function Home(){
         <div className="panelHead"><b>Исходные данные</b><span>мм · кН · МПа</span></div>
         <details open><summary>Плита и опора</summary><div className="grid"><Field label="Толщина плиты h" value={h} setValue={setH} unit="мм"/><Field label="Защитный слой" value={cover} setValue={setCover} unit="мм"/><Field label="Ø продольной арматуры" value={bar} setValue={setBar} unit="мм"/>{wall?<Field label="Толщина стены t" value={cy} setValue={setCy} unit="мм"/>:<><Field label="Размер колонны cx" value={cx} setValue={setCx} unit="мм"/><Field label="Размер колонны cy" value={cy} setValue={setCy} unit="мм"/></>}{hasBottom&&<Field label="До края плиты ya" value={edgeY} setValue={setEdgeY} unit="мм"/>}{hasRight&&<Field label="До края плиты xa" value={edgeX} setValue={setEdgeX} unit="мм"/>}</div><div className="derived column"><span>Рабочая высота h₀ <b>{h0.toFixed(0)} мм</b></span>{wall&&<span>Участок контура a = t + h₀ <b>{(cy+h0).toFixed(0)} мм</b></span>}</div></details>
         <details open><summary>Материал и усилия</summary><div className="grid"><SelectField label="Класс бетона" value={concrete} setValue={setConcrete} options={Object.keys(concreteRbt)}/><Field label="Rbt по СП 63" value={concreteRbt[concrete]} setValue={()=>{}} unit="МПа" disabled/><Field label="Коэффициент γb" value={gamma} setValue={setGamma} unit="—" step={.05}/><Field label="Продольная сила F" value={force} setValue={setForce} unit="кН"/><Field label="Момент Mx" value={mx} setValue={setMx} unit="кН·м" disabled={wall}/><Field label="Момент My" value={my} setValue={setMy} unit="кН·м"/></div>{wall&&<p className="hint strong">Для торца стены по методике отчёта учитывается момент только в направлении Y.</p>}</details>
-        <details open><summary>Отверстие рядом с опорой</summary><label className="switch"><input type="checkbox" checked={hole} onChange={e=>setHole(e.target.checked)}/><i></i><span>Учитывать одно отверстие</span></label>{hole&&<div className="grid"><Field label="Центр отверстия X" value={hx} setValue={setHx} unit="мм"/><Field label="Центр отверстия Y" value={hy} setValue={setHy} unit="мм"/><Field label="Ширина отверстия" value={hw} setValue={setHw} unit="мм"/><Field label="Высота отверстия" value={hh} setValue={setHh} unit="мм"/></div>}<div className={`holeState ${cut.info.active?"active":""}`}><span>Влияние отверстия</span><b>{holeStatus}</b></div><p className="hint">Координаты задаются от центра колонны или середины торца стены. При расстоянии до 6h₀ из контура исключается участок между лучами к крайним точкам отверстия.</p></details>
+        <details open><summary>Отверстия рядом с опорой</summary><div className="holeBlock"><label className="switch"><input type="checkbox" checked={hole} onChange={e=>setHole(e.target.checked)}/><i></i><span>Учитывать отверстие 1</span></label>{hole&&<div className="grid"><Field label="Центр отверстия 1 — X" value={hx} setValue={setHx} unit="мм"/><Field label="Центр отверстия 1 — Y" value={hy} setValue={setHy} unit="мм"/><Field label="Ширина отверстия 1" value={hw} setValue={setHw} unit="мм"/><Field label="Высота отверстия 1" value={hh} setValue={setHh} unit="мм"/></div>}<div className={`holeState ${cut.holes[0].info.active?"active":""}`}><span>Влияние отверстия 1</span><b>{holeStatuses[0]}</b></div></div><div className="holeBlock second"><label className="switch"><input type="checkbox" checked={hole2} onChange={e=>setHole2(e.target.checked)}/><i></i><span>Учитывать отверстие 2</span></label>{hole2&&<div className="grid"><Field label="Центр отверстия 2 — X" value={hx2} setValue={setHx2} unit="мм"/><Field label="Центр отверстия 2 — Y" value={hy2} setValue={setHy2} unit="мм"/><Field label="Ширина отверстия 2" value={hw2} setValue={setHw2} unit="мм"/><Field label="Высота отверстия 2" value={hh2} setValue={setHh2} unit="мм"/></div>}<div className={`holeState ${cut.holes[1].info.active?"active":""}`}><span>Влияние отверстия 2</span><b>{holeStatuses[1]}</b></div></div><p className="hint">Можно учитывать одно или два отверстия. Координаты задаются от центра колонны или середины торца стены. Для каждого отверстия в пределах 6h₀ из контура исключается соответствующий участок между лучами к его крайним точкам.</p></details>
         <details open><summary>Поперечная арматура</summary><label className="switch"><input type="checkbox" checked={reinforced} onChange={e=>setReinforced(e.target.checked)}/><i></i><span>Учитывать поперечную арматуру</span></label>{reinforced&&<><div className="grid"><SelectField label="Класс арматуры" value={steel} setValue={setSteel} options={["A500C","A240"]}/><Field label="Rsw" value={steelRsw[steel]} setValue={()=>{}} unit="МПа" disabled/><Field label="Диаметр стержня" value={swDia} setValue={setSwDia} unit="мм"/><Field label="Отступ первого ряда a₀" value={swOffset} setValue={setSwOffset} unit="мм"/><Field label="Шаг сетки sₓ = sᵧ = sw" value={swStep} setValue={setSwStep} unit="мм"/></div><div className={`recommend ${offsetOk?"ok":"bad"}`}><b>Отступ первого ряда</b><span>h₀/3 ≤ a₀ ≤ h₀/2: {(h0/3).toFixed(0)}–{(h0/2).toFixed(0)} мм</span></div><div className={`recommend ${stepAllowed?"ok":"bad"}`}><b>Шаг сетки</b><span>sw ≤ min(h₀/3; 300 мм) = {Math.min(h0/3,300).toFixed(0)} мм</span></div><div className={`recommend ${pairStraddles?"ok":"warn"}`}><b>Рабочая пара у контура</b><span>{pairStraddles?`ряды ${swOffset.toFixed(0)} и ${secondRow.toFixed(0)} мм находятся по разные стороны h₀/2`:`проверьте положение двух рядов относительно h₀/2 = ${(h0/2).toFixed(0)} мм`}</span></div><div className="derived column"><span>Asw = 2·AØ <b>{asw.toFixed(1)} мм²</b></span><span>qsw = Rsw·Asw/sw <b>{qsw.toFixed(1)} Н/мм</b></span><span>Рядов до зоны ≥ 1,5h₀ <b>{rowCount} шт.; ширина {zoneWidth.toFixed(0)} мм</b></span><span>Расчётное Fsw <b>{fswRaw.toFixed(1)} кН</b></span><span>Минимум 0,25Fb <b>{fswThreshold.toFixed(1)} кН</b></span><span>Максимум Fsw ≤ Fb <b>{fswCap.toFixed(1)} кН</b></span><span>Принятое Fsw <b>{fswAccepted.toFixed(1)} кН</b></span><span>Fb + Fsw ≤ 2Fb <b>{(fb+fswAccepted).toFixed(1)} ≤ {(2*fb).toFixed(1)} кН</b></span></div><div className={`swCheck ${fswRaw>=fswThreshold&&fswRaw<=fswCap?"ok":"warn"}`}><b>Проверка п. 8.1.48:</b><span>{swState}</span></div></>}</details>
       </aside>
       <section className="results">
@@ -191,8 +208,8 @@ export default function Home(){
             {hasBottom&&<line className="slabEdge" x1="48" y1={ty(slabBottom)} x2={hasRight?tx(slabRight):574} y2={ty(slabBottom)}/>} {hasRight&&<line className="slabEdge" x1={tx(slabRight)} y1="44" x2={tx(slabRight)} y2={ty(slabBottom)}/>} 
             <rect x={tx(supportLeft)} y={ty(cy/2)} width={(wall?Math.abs(supportLeft):cx)*scale} height={cy*scale} fill="url(#hatch)" stroke="#26342a" strokeWidth="2"/>
             {wall&&<g className="breakMark"><path d={`M${tx(supportLeft)+22},${ty(cy/2)-6} l-7,12 l14,12 l-14,12 l7,12`}/></g>}
-            {holeVisible&&<><rect x={tx(hx-hw/2)} y={ty(hy+hh/2)} width={hw*scale} height={hh*scale} fill="#fff" stroke="#bc4c35" strokeWidth="2"/><text x={tx(hx)} y={ty(hy)+4} textAnchor="middle" className="holeLabel">ОТВЕРСТИЕ</text></>}
-            {cut.info.active&&holeVisible&&cut.info.corners&&<g className="rays"><line x1={tx(0)} y1={ty(0)} x2={tx(cut.info.corners[0][0])} y2={ty(cut.info.corners[0][1])}/><line x1={tx(0)} y1={ty(0)} x2={tx(cut.info.corners[3][0])} y2={ty(cut.info.corners[3][1])}/></g>}
+            {holes.map((item,i)=>holeVisible[i]&&<g key={`hole-${i}`}><rect x={tx(item.x-item.w/2)} y={ty(item.y+item.h/2)} width={item.w*scale} height={item.h*scale} fill="#fff" stroke="#bc4c35" strokeWidth="2"/><text x={tx(item.x)} y={ty(item.y)+4} textAnchor="middle" className="holeLabel">ОТВЕРСТИЕ {i+1}</text></g>)}
+            {cut.holes.map((result,i)=>result.info.active&&holeVisible[i]&&result.info.corners&&<g className="rays" key={`rays-${i}`}><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.corners[0][0])} y2={ty(result.info.corners[0][1])}/><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.corners[3][0])} y2={ty(result.info.corners[3][1])}/></g>)}
             {reinforced&&outerCut.segments.map((s,i)=><line className="outerContour" strokeDasharray="10 8" key={`outer-${i}`} x1={tx(s.x1)} y1={ty(s.y1)} x2={tx(s.x2)} y2={ty(s.y2)}/>)}
             {cut.segments.map((s,i)=><line key={i} x1={tx(s.x1)} y1={ty(s.y1)} x2={tx(s.x2)} y2={ty(s.y2)} stroke="#df7c22" strokeWidth="4" strokeLinecap="round"/>)}
             <circle cx={tx(p.xc)} cy={ty(p.yc)} r="5" fill="#df7c22"/><path className="leader" d={`M${tx(p.xc)+5},${ty(p.yc)-5} l16,-18 h36`}/><text x={tx(p.xc)+62} y={ty(p.yc)-25} className="svgText">Cᵤ ({p.xc.toFixed(0)}; {p.yc.toFixed(0)})</text>
@@ -202,10 +219,9 @@ export default function Home(){
             {hasBottom&&<><line className="extension" x1={tx(-cx/2)} y1={ty(-cy/2)} x2={75} y2={ty(-cy/2)}/><line className="extension" x1="75" y1={ty(slabBottom)} x2={75} y2={ty(-cy/2)}/><Dim x1={81} y1={ty(-cy/2)} x2={81} y2={ty(slabBottom)} label={`ya = ${edgeY}`}/></>}
             {hasRight&&<g className="cornerXa"><line x1={tx(cx/2)} y1="72" x2={tx(slabRight)} y2="72"/><line x1={tx(cx/2)} y1="66" x2={tx(cx/2)} y2="78"/><line x1={tx(slabRight)} y1="66" x2={tx(slabRight)} y2="78"/><rect x={(tx(cx/2)+tx(slabRight))/2-34} y="62" width="68" height="18" rx="3"/><text x={(tx(cx/2)+tx(slabRight))/2} y="75">xa = {edgeX}</text></g>}
             {hasRight&&<g className="cornerCleanup"><rect x={tx(cx/2)-3} y={Math.min(416,ty(slabBottom)+3)} width="6" height={Math.max(0,417-ty(slabBottom))}/><rect x={tx(slabRight)-3} y={Math.min(416,ty(slabBottom)+3)} width="6" height={Math.max(0,417-ty(slabBottom))}/></g>}
-            {hole&&!cut.info.active&&<g className="noInfluence"><rect x="390" y="345" width="190" height="42" rx="6"/><text x="485" y="362">Отверстие вне зоны влияния</text><text x="485" y="377">d = {cut.info.clear.toFixed(0)} мм &gt; 6h₀ = {(6*h0).toFixed(0)} мм</text></g>}
-          </svg><div className="legend"><span><i className="support"></i>опора</span><span><i className="contour"></i>основной контур</span>{reinforced&&<span><i className="outer"></i>внешний контур без Asw</span>}{hasBottom&&<span><i className="edge"></i>край плиты</span>}{hole&&<span><i className="opening"></i>отверстие</span>}</div>
+          </svg><div className="legend"><span><i className="support"></i>опора</span><span><i className="contour"></i>основной контур</span>{reinforced&&<span><i className="outer"></i>внешний контур без Asw</span>}{hasBottom&&<span><i className="edge"></i>край плиты</span>}{(hole||hole2)&&<span><i className="opening"></i>отверстия</span>}</div>
         </div>
-        <div className="metrics"><div><small>Длина контура u</small><b>{(p.u/1000).toFixed(3)} м</b><em>{cut.removed>0?`− ${(cut.removed/1000).toFixed(3)} м из-за отверстия`:"без сокращения"}</em></div><div><small>Wₓ / Wᵧ</small><b>{(p.wx/1e6).toFixed(2)} / {(p.wy/1e6).toFixed(2)} ×10⁶ мм²</b></div><div><small>Центр контура x / y</small><b>{p.xc.toFixed(0)} / {p.yc.toFixed(0)} мм</b></div></div>
+        <div className="metrics"><div><small>Длина контура u</small><b>{(p.u/1000).toFixed(3)} м</b><em>{cut.removed>0?`− ${(cut.removed/1000).toFixed(3)} м из-за отверстий`:"без сокращения"}</em></div><div><small>Wₓ / Wᵧ</small><b>{(p.wx/1e6).toFixed(2)} / {(p.wy/1e6).toFixed(2)} ×10⁶ мм²</b></div><div><small>Центр контура x / y</small><b>{p.xc.toFixed(0)} / {p.yc.toFixed(0)} мм</b></div></div>
         <div className="check card"><div className="cardTitle"><div><b>Проверка прочности</b><small>{outerGoverns?"Определяет внешний контур без поперечной арматуры":"Определяет основной расчётный контур"}</small></div><span className={governingEta<=1?"pill green":"pill red"}>{governingEta<=1?"выполнено":"не выполнено"}</span></div>
           <div className="formula"><span>F/Fult</span><i>+</i><span>min ({!wall&&<>Mₓ/Mₓ,ult + </>}Mᵧ/Mᵧ,ult ; 0,5·F/Fult)</span><i>≤</i><span>1</span></div>
           <div className="bar"><i style={{width:`${Math.min(100,governingEta*100)}%`}} className={governingEta<=1?"safe":"danger"}></i><em style={{left:`${Math.min(96,governingEta*100)}%`}}>{(governingEta*100).toFixed(0)}%</em></div>
@@ -214,7 +230,7 @@ export default function Home(){
           {reinforced&&<div className={`outerCheck ${outerEta<=1?"ok":"bad"}`}><div><b>Внешний контур без поперечной арматуры</b><span>На h₀/2 за последним рядом: отступ от грани {outerOffset.toFixed(0)} мм, u = {(outerP.u/1000).toFixed(3)} м</span></div><strong>η = {outerEta.toFixed(3)}</strong></div>}
         </div>
         <div className="reportAction"><div><b>Расчётный отчёт</b><span>Исходные данные, формулы с подстановками, проверки обоих контуров и итоговое заключение.</span></div><button onClick={makeReport} disabled={reportBusy}>{reportBusy?"Формируем…":"Скачать отчёт DOCX"}</button></div>
-        <div className="method"><b>Расчётная основа</b><p>СП 63.13330.2018 с изменениями: пп. 8.1.46–8.1.50. При совместном действии силы и моментов относительный вклад моментов принимается не более 0,5·F/Fult. Специальные контуры у торцов стен — методика НИИЖБ, раздел 9. Отверстие учитывается сокращением контура и повторным вычислением его центра тяжести, Wₓ и Wᵧ.</p><strong>Инженерный прототип: перед выпуском проектной документации требуется верификация на эталонных примерах и проверка применимости коэффициентов к конкретному объекту.</strong></div>
+        <div className="method"><b>Расчётная основа</b><p>СП 63.13330.2018 с изменениями: пп. 8.1.46–8.1.50. При совместном действии силы и моментов относительный вклад моментов принимается не более 0,5·F/Fult. Специальные контуры у торцов стен — методика НИИЖБ, раздел 9. Одно или два отверстия учитываются объединённым сокращением контура и повторным вычислением его центра тяжести, Wₓ и Wᵧ.</p><strong>Инженерный прототип: перед выпуском проектной документации требуется верификация на эталонных примерах и проверка применимости коэффициентов к конкретному объекту.</strong></div>
       </section>
     </div>
   </main>;
