@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { downloadPunchingReport } from "./report";
 
 type CaseType = "columnCenter" | "columnEdge" | "columnCorner" | "wallEnd" | "wallEdge";
@@ -67,11 +67,11 @@ function openingData(hole: Hole, cx: number, cy: number, h0: number, wall: boole
     [hole.x-hole.w/2,hole.y-hole.h/2], [hole.x+hole.w/2,hole.y-hole.h/2],
     [hole.x+hole.w/2,hole.y+hole.h/2], [hole.x-hole.w/2,hole.y+hole.h/2],
   ];
-  const angles = corners.map(([x,y]) => (Math.atan2(y,x)+Math.PI*2)%(Math.PI*2)).sort((a,b)=>a-b);
+  const angular = corners.map((point) => ({point,angle:(Math.atan2(point[1],point[0])+Math.PI*2)%(Math.PI*2)})).sort((a,b)=>a.angle-b.angle);
   let largest=-1, gapIndex=0;
-  for(let i=0;i<angles.length;i++){const next=i===angles.length-1?angles[0]+2*Math.PI:angles[i+1];if(next-angles[i]>largest){largest=next-angles[i];gapIndex=i}}
-  const start=angles[(gapIndex+1)%angles.length], span=2*Math.PI-largest;
-  return { clear, active: hole.enabled && clear <= 6*h0, start, span, corners };
+  for(let i=0;i<angular.length;i++){const next=i===angular.length-1?angular[0].angle+2*Math.PI:angular[i+1].angle;if(next-angular[i].angle>largest){largest=next-angular[i].angle;gapIndex=i}}
+  const startItem=angular[(gapIndex+1)%angular.length],endItem=angular[gapIndex],start=startItem.angle,span=2*Math.PI-largest;
+  return { clear, active: hole.enabled && clear <= 6*h0, start, span, corners, rays:[startItem.point,endItem.point] };
 }
 
 function trimByHole(segments: Segment[], hole: Hole, cx: number, cy: number, h0: number, wall: boolean) {
@@ -112,7 +112,17 @@ function sectionProps(seg: Segment[]) {
 }
 
 function Field({label,value,setValue,unit,step=1,disabled=false}:{label:string;value:number;setValue:(v:number)=>void;unit:string;step?:number;disabled?:boolean}){
-  return <label className={`field ${disabled?"disabled":""}`}><span>{label}</span><div><input disabled={disabled} type="number" value={value} step={step} onChange={e=>setValue(Number(e.target.value))}/><b>{unit}</b></div></label>;
+  const [draft,setDraft]=useState(String(value));
+  useEffect(()=>setDraft(String(value)),[value]);
+  const update=(text:string)=>{
+    if(!/^-?\d*(?:[.,]\d*)?$/.test(text))return;
+    setDraft(text);
+    const normalized=text.replace(",",".");
+    if(normalized!==""&&normalized!=="-"&&normalized!=="."&&normalized!=="-."){
+      const number=Number(normalized);if(Number.isFinite(number))setValue(number);
+    }
+  };
+  return <label className={`field ${disabled?"disabled":""}`}><span>{label}</span><div><input disabled={disabled} type="text" inputMode="decimal" value={draft} data-step={step} onChange={e=>update(e.target.value)} onBlur={()=>setDraft(String(value))}/><b>{unit}</b></div></label>;
 }
 function SelectField({label,value,setValue,options}:{label:string;value:string;setValue:(v:string)=>void;options:string[]}){
   return <label className="field"><span>{label}</span><div><select value={value} onChange={e=>setValue(e.target.value)}>{options.map(x=><option key={x}>{x}</option>)}</select></div></label>;
@@ -209,7 +219,7 @@ export default function Home(){
             <rect x={tx(supportLeft)} y={ty(cy/2)} width={(wall?Math.abs(supportLeft):cx)*scale} height={cy*scale} fill="url(#hatch)" stroke="#26342a" strokeWidth="2"/>
             {wall&&<g className="breakMark"><path d={`M${tx(supportLeft)+22},${ty(cy/2)-6} l-7,12 l14,12 l-14,12 l7,12`}/></g>}
             {holes.map((item,i)=>holeVisible[i]&&<g key={`hole-${i}`}><rect x={tx(item.x-item.w/2)} y={ty(item.y+item.h/2)} width={item.w*scale} height={item.h*scale} fill="#fff" stroke="#bc4c35" strokeWidth="2"/><text x={tx(item.x)} y={ty(item.y)+4} textAnchor="middle" className="holeLabel">ОТВЕРСТИЕ {i+1}</text></g>)}
-            {cut.holes.map((result,i)=>result.info.active&&holeVisible[i]&&result.info.corners&&<g className="rays" key={`rays-${i}`}><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.corners[0][0])} y2={ty(result.info.corners[0][1])}/><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.corners[3][0])} y2={ty(result.info.corners[3][1])}/></g>)}
+            {cut.holes.map((result,i)=>result.info.active&&holeVisible[i]&&result.info.rays&&<g className="rays" key={`rays-${i}`}><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.rays[0][0])} y2={ty(result.info.rays[0][1])}/><line x1={tx(0)} y1={ty(0)} x2={tx(result.info.rays[1][0])} y2={ty(result.info.rays[1][1])}/></g>)}
             {reinforced&&outerCut.segments.map((s,i)=><line className="outerContour" strokeDasharray="10 8" key={`outer-${i}`} x1={tx(s.x1)} y1={ty(s.y1)} x2={tx(s.x2)} y2={ty(s.y2)}/>)}
             {cut.segments.map((s,i)=><line key={i} x1={tx(s.x1)} y1={ty(s.y1)} x2={tx(s.x2)} y2={ty(s.y2)} stroke="#df7c22" strokeWidth="4" strokeLinecap="round"/>)}
             <circle cx={tx(p.xc)} cy={ty(p.yc)} r="5" fill="#df7c22"/><path className="leader" d={`M${tx(p.xc)+5},${ty(p.yc)-5} l16,-18 h36`}/><text x={tx(p.xc)+62} y={ty(p.yc)-25} className="svgText">Cᵤ ({p.xc.toFixed(0)}; {p.yc.toFixed(0)})</text>
