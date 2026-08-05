@@ -127,7 +127,7 @@ export async function buildPunchingReport(d: ReportData) {
       table([["Параметр", "Принятое значение"], ["Класс и диаметр", `${d.steel}; Ø${num(d.swDia, 0)}; Rsw = ${num(d.rsw, 0)} МПа`], ["Отступ первого ряда a₀", mm(d.swOffset)], ["Шаг квадратной сетки sw", mm(d.swStep)], ["Площадь рабочей пары Asw", `${num(d.asw, 1)} мм² = 2·AØ`], ["Зона армирования", `${d.rowCount} рядов; ширина ${mm(d.zoneWidth)} ≥ 1,5h₀`]]),
       subheading("3.1. Конструктивные требования"),
       formula("h₀/3 ≤ a₀ ≤ h₀/2", `${num(d.h0 / 3, 1)} ≤ ${num(d.swOffset, 0)} ≤ ${num(d.h0 / 2, 1)} мм`),
-      formula("sw ≤ h₀/3", `${num(d.swStep, 0)} ≤ ${num(d.h0 / 3, 1)} мм`),
+      formula("sw ≤ min(h₀/3; 300 мм)", `${num(d.swStep, 0)} ≤ min(${num(d.h0 / 3, 1)}; 300) = ${num(Math.min(d.h0 / 3, 300), 1)} мм`),
       formula("bzone = a₀ + (n−1)·sw ≥ 1,5h₀", `${num(d.swOffset, 0)} + (${d.rowCount}−1)·${num(d.swStep, 0)} = ${num(d.zoneWidth, 0)} мм ≥ ${num(1.5 * d.h0, 1)} мм`),
       formula("n = ceil[(1,5h₀−a₀)/sw] + 1", `ceil[(${num(1.5 * d.h0, 1)}−${num(d.swOffset, 0)})/${num(d.swStep, 0)}] + 1 = ${d.rowCount}`),
       subheading("3.2. Усилие, воспринимаемое поперечной арматурой"),
