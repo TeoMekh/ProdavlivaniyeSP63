@@ -203,7 +203,7 @@ export default function Home(){
   };
   return <main>
     <header><div className="brand"><span>П</span><div><strong>ПРОДАВЛИВАНИЕ</strong><small>расчёт перекрытий по СП 63</small></div></div><div className="status">Расчётная модель · v0.2</div></header>
-    <section className="hero"><div><p className="eyebrow">Железобетонные конструкции</p><h1>Проверка плиты<br/>на продавливание</h1><p>Пять расчётных положений опоры, свободные края, отверстия и поперечная арматура — с геометрией фактического контрольного контура.</p></div><div className={`verdict ${governingEta<=1?"ok":"bad"}`}><small>Коэффициент использования</small><strong>{Number.isFinite(governingEta)?governingEta.toFixed(2):"—"}</strong><span>{governingEta<=1?"Несущая способность обеспечена":"Несущая способность не обеспечена"}</span></div></section>
+    <section className="hero"><div><p className="eyebrow">Железобетонные конструкции</p><h1>Проверка плиты<br/>на продавливание</h1><p>Расчёт продавливания для колонн и стен с учётом краёв плиты, отверстий и поперечной арматуры.</p></div><div className={`verdict ${governingEta<=1?"ok":"bad"}`}><small>Коэффициент использования</small><strong>{Number.isFinite(governingEta)?governingEta.toFixed(2):"—"}</strong><span>{governingEta<=1?"Несущая способность обеспечена":"Несущая способность не обеспечена"}</span></div></section>
     <nav className="caseTabs">{(Object.keys(cases) as CaseType[]).map(k=><button className={kind===k?"active":""} onClick={()=>setKind(k)} key={k}><small>{cases[k].n}</small>{cases[k].label}</button>)}</nav>
     <div className="workspace">
       <aside>
