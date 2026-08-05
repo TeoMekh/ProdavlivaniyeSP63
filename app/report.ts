@@ -59,14 +59,18 @@ export async function buildPunchingReport(d: ReportData) {
   const ok = d.governingEta <= 1;
   const ab = d.u * d.h0;
   const rbtBase = Math.abs(d.gamma) > 1e-9 ? d.rbt / d.gamma : d.rbt;
-  const steelStress = d.fswAccepted * 1000 / Math.max(ab, 1);
-  const totalStressCapacity = d.rbt + steelStress;
   const fult = d.fb + d.fswAccepted;
+  const mbxUlt = d.wall ? Infinity : d.rbt * d.wx * d.h0 / 1e6;
+  const mbyUlt = d.rbt * d.wy * d.h0 / 1e6;
+  const mswxRaw = d.wall ? 0 : 0.8 * d.qsw * d.wx / 1e6;
+  const mswyRaw = 0.8 * d.qsw * d.wy / 1e6;
+  const mswxUlt = d.wall ? 0 : d.fswAccepted * d.wx / Math.max(d.u, 1) / 1000;
+  const mswyUlt = d.fswAccepted * d.wy / Math.max(d.u, 1) / 1000;
   const forceStress = d.force * 1000 / Math.max(ab, 1);
   const mxStress = d.wall ? 0 : Math.abs(d.mx) * 1e6 / Math.max(d.wx * d.h0, 1);
   const myStress = Math.abs(d.my) * 1e6 / Math.max(d.wy * d.h0, 1);
-  const mxUlt = totalStressCapacity * d.wx * d.h0 / 1e6;
-  const myUlt = totalStressCapacity * d.wy * d.h0 / 1e6;
+  const mxUlt = mbxUlt + mswxUlt;
+  const myUlt = mbyUlt + mswyUlt;
   const mxRatio = d.wall ? 0 : Math.abs(d.mx) / Math.max(mxUlt, 1e-9);
   const myRatio = Math.abs(d.my) / Math.max(myUlt, 1e-9);
   const outerAb = d.outerU * d.h0;
@@ -75,6 +79,7 @@ export async function buildPunchingReport(d: ReportData) {
   const outerMyUlt = d.rbt * d.outerWy * d.h0 / 1e6;
   const outerMxRatio = d.wall ? 0 : Math.abs(d.mx) / Math.max(outerMxUlt, 1e-9);
   const outerMyRatio = Math.abs(d.my) / Math.max(outerMyUlt, 1e-9);
+  const usesSteel = d.fswAccepted > 0;
   const supportRows: Array<[string, string]> = [
     ["Параметр", "Принятое значение"], ["Расчётный случай", d.caseLabel],
     ["Толщина плиты h", mm(d.h)], ["Защитный слой", mm(d.cover)],
@@ -144,24 +149,29 @@ export async function buildPunchingReport(d: ReportData) {
 
   children.push(
     heading(d.reinforced ? "4. Проверка прочности" : "3. Проверка прочности"),
-    reference(d.reinforced ? "СП 63.13330.2018, п. 8.1.50, формула (8.96); ограничение несущей способности поперечной арматуры." : "СП 63.13330.2018, п. 8.1.49, формулы (8.93)–(8.95)."),
+    reference(usesSteel ? "СП 63.13330.2018, п. 8.1.50, формула (8.96); предельные усилия складываются из бетонной и арматурной составляющих." : "СП 63.13330.2018, п. 8.1.49, формулы (8.93)–(8.95)."),
     explanation("Сначала определяем вклад сосредоточенной силы. Затем определяем полный относительный вклад моментов. По п. 8.1.46 сумму относительных вкладов моментов принимаем не более 0,5·F/Fult."),
     subheading(d.reinforced ? "4.1. Суммарная несущая способность по силе" : "3.1. Несущая способность по силе"),
-    formula("Fult = Fᵦ,ult + Fsw,ult", `${num(d.fb, 1)} + ${num(d.fswAccepted, 1)} = ${num(fult, 1)} кН`),
+    formula(usesSteel ? "Fult = Fᵦ,ult + Fsw,ult" : "Fult = Fᵦ,ult", usesSteel ? `${num(d.fb, 1)} + ${num(d.fswAccepted, 1)} = ${num(fult, 1)} кН` : `${num(d.fb, 1)} кН`),
     formula("vF = F/(u·h₀)", `${num(d.force, 1)}·1000 / (${num(d.u, 0)}·${num(d.h0, 0)}) = ${num(forceStress)} МПа`),
-    formula("F / Fult", `${num(d.force, 1)} / ${num(fult, 1)} = ${num(d.forceRatio)}`),
+    formula(usesSteel ? "F / (Fᵦ,ult + Fsw,ult)" : "F / Fᵦ,ult", `${num(d.force, 1)} / ${num(fult, 1)} = ${num(d.forceRatio)}`),
     subheading(d.reinforced ? "4.2. Несущая способность при действии моментов" : "3.2. Несущая способность при действии моментов"),
-    explanation("Предельные моменты определяются отдельно относительно осей X и Y. При наличии поперечной арматуры в расчёте используется суммарная расчётная интенсивность сопротивления бетона и принятой поперечной арматуры."),
-    formula("vult = Rbt + Fsw,ult/(u·h₀)", `${num(d.rbt, 3)} + ${num(d.fswAccepted, 1)}·1000/(${num(d.u, 0)}·${num(d.h0, 0)}) = ${num(totalStressCapacity)} МПа`),
-    formula("Mₓ,ult = vult · Wₓ · h₀", `${num(totalStressCapacity)}·${num(d.wx, 0)}·${num(d.h0, 0)}/10⁶ = ${num(mxUlt, 2)} кН·м`),
-    formula("Mᵧ,ult = vult · Wᵧ · h₀", `${num(totalStressCapacity)}·${num(d.wy, 0)}·${num(d.h0, 0)}/10⁶ = ${num(myUlt, 2)} кН·м`),
+    explanation(usesSteel ? "По пп. 8.1.50–8.1.52 предельные моменты складываются из бетонной Mᵦ,ult и арматурной Msw,ult составляющих. При равномерном армировании Wsw,x(y) принимаются равными соответствующим Wᵦx и Wᵦy." : "Предельные моменты воспринимаются только бетоном и определяются отдельно относительно осей X и Y."),
+    formula("Mᵦx,ult = Rbt · Wₓ · h₀", `${num(d.rbt, 3)}·${num(d.wx, 0)}·${num(d.h0, 0)}/10⁶ = ${num(mbxUlt, 2)} кН·м`),
+    formula("Mᵦy,ult = Rbt · Wᵧ · h₀", `${num(d.rbt, 3)}·${num(d.wy, 0)}·${num(d.h0, 0)}/10⁶ = ${num(mbyUlt, 2)} кН·м`),
+    ...(usesSteel ? [
+      formula("Msw,x,ult = 0,8·qsw·Wsw,x", `0,8·${num(d.qsw, 1)}·${num(d.wx, 0)}/10⁶ = ${num(mswxRaw, 2)} кН·м; принято ${num(mswxUlt, 2)} кН·м`),
+      formula("Msw,y,ult = 0,8·qsw·Wsw,y", `0,8·${num(d.qsw, 1)}·${num(d.wy, 0)}/10⁶ = ${num(mswyRaw, 2)} кН·м; принято ${num(mswyUlt, 2)} кН·м`),
+      formula("Mₓ,ult = Mᵦx,ult + Msw,x,ult", `${num(mbxUlt, 2)} + ${num(mswxUlt, 2)} = ${num(mxUlt, 2)} кН·м`),
+      formula("Mᵧ,ult = Mᵦy,ult + Msw,y,ult", `${num(mbyUlt, 2)} + ${num(mswyUlt, 2)} = ${num(myUlt, 2)} кН·м`),
+    ] : []),
     formula("vMx = |Mₓ|/(Wₓ·h₀)", `${num(Math.abs(d.mx), 1)}·10⁶/(${num(d.wx, 0)}·${num(d.h0, 0)}) = ${num(mxStress)} МПа`),
     formula("vMy = |Mᵧ|/(Wᵧ·h₀)", `${num(Math.abs(d.my), 1)}·10⁶/(${num(d.wy, 0)}·${num(d.h0, 0)}) = ${num(myStress)} МПа`),
     formula("ΣM/Mult = |Mₓ|/Mₓ,ult + |Mᵧ|/Mᵧ,ult", `${num(mxRatio)} + ${num(myRatio)} = ${num(d.rawMomentRatio)}`),
     subheading(d.reinforced ? "4.3. Ограничение вклада моментов и итог" : "3.3. Ограничение вклада моментов и итог"),
     formula("0,5 · F / Fult", `0,5 · ${num(d.forceRatio)} = ${num(d.momentLimit)}`),
-    formula("η = F/Fult + min(ΣM/Mult; 0,5·F/Fult)    [СП 63, формулы (8.93)/(8.96)]", `${num(d.forceRatio)} + min(${num(d.rawMomentRatio)}; ${num(d.momentLimit)}) = ${num(d.eta)}`),
-    table([["Составляющая", "Значение"], ["От силы F/Fult", num(d.forceRatio)], ["Полный вклад моментов", num(d.rawMomentRatio)], ["Предельный вклад 0,5·F/Fult", num(d.momentLimit)], ["Принято от моментов", num(d.acceptedMomentRatio)], ["Основной контур", `η = ${num(d.eta)}`]]),
+    formula(usesSteel ? "η = F/(Fᵦ,ult+Fsw,ult) + min[ΣM/(Mᵦ,ult+Msw,ult); 0,5·F/(Fᵦ,ult+Fsw,ult)]    [СП 63, (8.96)]" : "η = F/Fᵦ,ult + min(ΣM/Mᵦ,ult; 0,5·F/Fᵦ,ult)    [СП 63, (8.93)–(8.95)]", `${num(d.forceRatio)} + min(${num(d.rawMomentRatio)}; ${num(d.momentLimit)}) = ${num(d.eta)}`),
+    table([["Составляющая", "Значение"], [usesSteel ? "От силы F/(Fᵦ,ult+Fsw,ult)" : "От силы F/Fᵦ,ult", num(d.forceRatio)], ["Полный вклад моментов", num(d.rawMomentRatio)], ["Предельный вклад 0,5·F/Fult", num(d.momentLimit)], ["Принято от моментов", num(d.acceptedMomentRatio)], ["Основной контур", `η = ${num(d.eta)}`]]),
   );
   if (d.reinforced) children.push(
     new Paragraph({ spacing: { before: 180, after: 80 }, children: [new TextRun({ text: "Проверка за границей зоны поперечной арматуры", bold: true, size: 23, color: ink, font: "Arial" })] }),
@@ -186,7 +196,8 @@ export async function buildPunchingReport(d: ReportData) {
       ["СП 63.13330.2018, п. 8.1.47", "Положение и геометрия расчётного контура, учёт свободных краёв и отверстий."],
       ["СП 63.13330.2018, п. 8.1.48", "Поперечная арматура, минимальный учитываемый вклад, ограничение 2Fᵦ,ult и внешний контур."],
       ["СП 63.13330.2018, п. 8.1.49", "Проверка без поперечной арматуры, формулы (8.93)–(8.95)."],
-      ["СП 63.13330.2018, п. 8.1.50", "Проверка с поперечной арматурой, формула (8.96)."],
+      ["СП 63.13330.2018, п. 8.1.50", "Проверка с поперечной арматурой, формула (8.96), и отдельные ограничения суммарных предельных силы и моментов."],
+      ["СП 63.13330.2018, пп. 8.1.51–8.1.52", "Определение арматурных составляющих Fsw,ult и Msw,ult; при равномерном армировании Wsw принимается равным соответствующему Wb."],
       ["СП 63.13330.2018, п. 10.3.17", "Конструктивные требования к расположению поперечной арматуры в плите."],
     ]),
     new Paragraph({ spacing: { before: 120, after: 80 }, children: [new TextRun({ text: "Расчёт выполнен по СП 63.13330.2018, пункты 8.1.46–8.1.52 и 10.3.17. Для каждой проверки выше приведены исходная формула, числовая подстановка и полученный результат.", font: "Arial", size: 20, color: ink })] }),
